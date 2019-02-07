@@ -2,12 +2,15 @@
 #include "hook.h"
 HMODULE hMod;
 LPD3DXFONT Directx_Font;
-uintptr_t Base = 0, EndSceneAdd = 0;
+uintptr_t Base = 0, EndSceneAdd = 0, clickOnObjAdd = 0;
 int row = 0, col = 0;
 BYTE cell[MAX_COL][MAX_ROW]; // cell[i][j] = 1 mean the cell at (i, j) has bomb, otherwise, = 0
-typedef HRESULT (__stdcall *tEndScene)(LPDIRECT3DDEVICE9 pDevice); 
+typedef HRESULT(__stdcall *tEndScene)(LPDIRECT3DDEVICE9 pDevice);
+typedef __int64(__fastcall *func)(uintptr_t *rcx, uintptr_t rdx, unsigned int r8d); // rcx = pointer to object, rdx = column, r8d = row
 tEndScene oriEndScene; // Original EndScene Function
-HRESULT __stdcall  myEndScene(LPDIRECT3DDEVICE9 pDevice)
+func clickOn; // clickOn(i, j) will act like clicking on cell[i][j]
+
+void ReadInformation()
 {
 	// Read row:
 
@@ -19,13 +22,13 @@ HRESULT __stdcall  myEndScene(LPDIRECT3DDEVICE9 pDevice)
 	col = *(int*)(col + 0x18);
 	col = *(int*)(col + 0x10);
 
-	D3DXCreateFontA(pDevice, 14, 0, FW_BOLD, 0, 0, DEFAULT_CHARSET, OUT_TT_ONLY_PRECIS, PROOF_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Arial", &Directx_Font);
-	DrawString(0, 7, D3DCOLOR_XRGB(255, 0, 0), Directx_Font, "Author = fb.com/Trung149");
-
 	// row is at [[base + 0xAAA38] + 0x18] + 0xC]
-    // col is at [[base + 0xAAA38] + 0x18] + 0x10]
-    // row and col can be found by looking around "Time" in CE
+	// col is at [[base + 0xAAA38] + 0x18] + 0x10]
+	// row and col can be found by looking around "Time" in CE
 
+	clickOnObjAdd = *(uintptr_t*)(Base + 0xAAA38);
+	clickOnObjAdd = *(uintptr_t*)(clickOnObjAdd + 0x18);
+	//
 	// printf("row = %d, col = %d\n", row, col); // For debugging
 	// Read each column
 	// The game stores the board as an array, go in Y direction
@@ -42,6 +45,14 @@ HRESULT __stdcall  myEndScene(LPDIRECT3DDEVICE9 pDevice)
 		tmp += 0x0;
 		memcpy(cell[i], (void*)tmp, row); // copy (row) elements to Column[i]
 	}
+}
+
+HRESULT __stdcall myEndScene(LPDIRECT3DDEVICE9 pDevice)
+{
+	ReadInformation();
+	//
+	D3DXCreateFontA(pDevice, 14, 0, FW_BOLD, 0, 0, DEFAULT_CHARSET, OUT_TT_ONLY_PRECIS, PROOF_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Arial", &Directx_Font);
+	DrawString(0, 7, D3DCOLOR_XRGB(255, 0, 0), Directx_Font, "Author = fb.com/Trung149");
 	for (int j = 0; j < row; ++j)
 	{
 		for (int i = 0; i < col; ++i)
@@ -53,6 +64,7 @@ HRESULT __stdcall  myEndScene(LPDIRECT3DDEVICE9 pDevice)
 	Directx_Font->Release(); // free memory, prevent memory leak
 	return oriEndScene(pDevice);
 }
+
 
 void Init()
 {
@@ -67,22 +79,50 @@ void Init()
 	EndSceneAdd = *(uintptr_t*)(EndSceneAdd + 0x0); // Get vTable
 	EndSceneAdd = *(uintptr_t*)(EndSceneAdd + 0x150); // 0x150 = 336 = 8 * 42 = sizeof(pointer) * EndSceneIndex
 	oriEndScene = (tEndScene)(EndSceneAdd);
+	// Get this funciton by debugging the game
+	clickOn = (func)(Base + 0x27230);
 	// BeginHook
 	Mhook_SetHook((PVOID*)&oriEndScene, myEndScene);
 }
 
+void Aimbot()
+{
+	while (true)
+	{
+		if (GetAsyncKeyState(VK_LSHIFT))
+		{
+			ReadInformation();
+			for (int j = 0; j < row; ++j)
+			{
+				for (int i = 0; i < col; ++i)
+				{
+					ReadInformation();
+					if (cell[i][j] == 0)
+					{
+						clickOn((uintptr_t*)clickOnObjAdd, i, j);
+						Sleep(10); // wait for rendering, or crash game :)
+					}
+				}
+			}
+			Sleep(5000);
+		}
+		Sleep(10);
+	}
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved)
 {
-    switch (ul_reason_for_call)
-    {
-    case DLL_PROCESS_ATTACH:
+	switch (ul_reason_for_call)
+	{
+	case DLL_PROCESS_ATTACH:
 		hMod = hModule;
 		DisableThreadLibraryCalls(hMod);
 		CreateThread(NULL, NULL, (LPTHREAD_START_ROUTINE)Init, NULL, NULL, NULL);
+		CreateThread(NULL, NULL, (LPTHREAD_START_ROUTINE)Aimbot, NULL, NULL, NULL);
 		break;
-    case DLL_THREAD_ATTACH:
+	case DLL_THREAD_ATTACH:
 		break;
-    }
-    return TRUE;
+	}
+	return TRUE;
 }
 
