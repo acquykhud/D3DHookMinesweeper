@@ -13,6 +13,7 @@ func clickOn; // clickOn(i, j) will act like clicking on cell[i][j]
 void ReadInformation()
 {
 	// Read row:
+
 	row = *(int*)(Base + 0xAAA38);
 	row = *(int*)(row + 0x18);
 	row = *(int*)(row + 0xC);
